@@ -1,0 +1,20 @@
+{
+  "name": "ae2-gui-light",
+  "version": "0.1.0",
+  "private": true,
+  "config": {
+    "build_id": "ae2-gui-light",
+    "build_type": "",
+    "mc_version": "1.21.1",
+    "mod_loader": "",
+    "build_include": "assets,pack.mcmeta,pack.png,LICENCE,README.md"
+  },
+  "scripts": {
+    "build": "npm run build:121",
+    "build:121": "node scripts/build-121.mjs"
+  },
+  "devDependencies": {
+    "pixelmatch": "^7.1.0",
+    "pngjs": "^7.0.0"
+  }
+}

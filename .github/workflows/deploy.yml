@@ -1,0 +1,116 @@
+name: Deploy
+
+env:
+  MC_VERSION: 1.21.1
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Publish target
+        required: true
+        type: choice
+        options:
+          - curseforge
+          - modrinth
+
+permissions:
+  contents: write
+
+jobs:
+  version_check:
+    runs-on: ubuntu-latest
+    outputs:
+      current: ${{ steps.version.outputs.current }}
+      changed: ${{ steps.version.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check version changed
+        id: version
+        shell: bash
+        run: |
+          current=$(node -p "require('./package.json').version")
+          previous=$(git show origin/main:package.json 2>/dev/null | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).version" || true)
+          echo "current=$current" >> "$GITHUB_OUTPUT"
+          if [ -n "$previous" ] && [ "$current" = "$previous" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    needs: version_check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install zip
+        run: sudo apt-get update && sudo apt-get install -y zip
+      - name: Install
+        run: npm ci
+      - name: Build
+        run: npm run build
+
+  publish_curseforge:
+    needs: [version_check, build]
+    if: github.event_name == 'push' && needs.version_check.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install
+        run: npm ci
+      - name: Publish to CurseForge
+        uses: Kir-Antipov/mc-publish@v3.3
+        with:
+          curseforge-id: ${{ vars.CURSEFORGE_PROJECT_ID }}
+          curseforge-token: ${{ secrets.CURSEFORGE_TOKEN }}
+          files: dist/*.zip
+          name: AE2 GUI Light v${{ needs.version_check.outputs.current }}
+          version: ${{ needs.version_check.outputs.current }}
+          version-type: release
+          changelog: Automated build from GitHub Actions
+          loaders: fabric
+          game-versions: 1.21.1
+          java: 21
+
+  publish_modrinth:
+    needs: [version_check, build]
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.target == 'modrinth' && needs.version_check.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install
+        run: npm ci
+      - name: Publish to Modrinth
+        uses: Kir-Antipov/mc-publish@v3.3
+        with:
+          modrinth-id: ${{ vars.MODRINTH_PROJECT_ID }}
+          modrinth-token: ${{ secrets.MODRINTH_TOKEN }}
+          files: dist/*.zip
+          name: AE2 GUI Light v${{ needs.version_check.outputs.current }}
+          version: ${{ needs.version_check.outputs.current }}
+          version-type: release
+          changelog: Automated build from GitHub Actions
+          loaders: fabric
+          game-versions: 1.21.1
+          java: 21
