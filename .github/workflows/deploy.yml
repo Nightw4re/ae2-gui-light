@@ -61,6 +61,13 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: resourcepack-zip
+          path: dist/*.zip
+          if-no-files-found: error
+
   publish_curseforge:
     needs: [version_check, build]
     if: github.event_name == 'push' && needs.version_check.outputs.changed == 'true'
@@ -74,6 +81,10 @@ jobs:
           node-version: 22
       - name: Install
         run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          name: resourcepack-zip
+          path: dist
       - name: Publish to CurseForge
         uses: Kir-Antipov/mc-publish@v3.3
         with:
@@ -90,7 +101,7 @@ jobs:
 
   publish_modrinth:
     needs: [version_check, build]
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.target == 'modrinth' && needs.version_check.outputs.changed == 'true'
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.target == 'modrinth'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -101,16 +112,42 @@ jobs:
           node-version: 22
       - name: Install
         run: npm ci
-      - name: Publish to Modrinth
-        uses: Kir-Antipov/mc-publish@v3.3
+      - uses: actions/download-artifact@v4
         with:
-          modrinth-id: ${{ vars.MODRINTH_PROJECT_ID }}
-          modrinth-token: ${{ secrets.MODRINTH_TOKEN }}
-          files: dist/*.zip
-          name: AE2 GUI Light v${{ needs.version_check.outputs.current }}
-          version: ${{ needs.version_check.outputs.current }}
-          version-type: release
-          changelog: Automated build from GitHub Actions
-          loaders: fabric
-          game-versions: 1.21.1
-          java: 21
+          name: resourcepack-zip
+          path: dist
+      - name: Publish to Modrinth
+        shell: bash
+        env:
+          MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
+          MODRINTH_PROJECT_ID: ${{ vars.MODRINTH_PROJECT_ID }}
+          VERSION: ${{ needs.version_check.outputs.current }}
+        run: |
+          set -euo pipefail
+          zip_file=$(find dist -maxdepth 1 -name '*.zip' -print -quit)
+          if [ -z "$zip_file" ]; then
+            echo "No zip artifact found in dist/"
+            exit 1
+          fi
+          payload=$(cat <<JSON
+          {
+            "name": "AE2 GUI Light v${VERSION}",
+            "version_number": "${VERSION}",
+            "changelog": "Automated build from GitHub Actions",
+            "dependencies": [],
+            "game_versions": ["1.21.1"],
+            "version_type": "release",
+            "loaders": ["minecraft"],
+            "featured": true,
+            "status": "listed",
+            "requested_status": "listed",
+            "project_id": "${MODRINTH_PROJECT_ID}",
+            "file_parts": ["file"],
+            "primary_file": "file"
+          }
+          JSON
+          )
+          curl -fsS -X POST "https://api.modrinth.com/v2/version" \
+            -H "Authorization: $MODRINTH_TOKEN" \
+            -F "data=$payload;type=application/json" \
+            -F "file=@${zip_file};type=application/zip"
